@@ -59,6 +59,7 @@ class ProfessionInfo(BaseModel):
     portfolio: str
 
 class Profile(BaseModel):
+    id: str = Field(alias='_id')
     firstName: str
     lastName: str
     country: str
@@ -71,7 +72,7 @@ class Profile(BaseModel):
     #max: int
 
 class Job(BaseModel):
-    id: str = Field(alias='_id')
+    #id: str = Field(alias='_id')
     title: str
     budgetMin: int
     budgetMax: int
@@ -79,8 +80,8 @@ class Job(BaseModel):
     projectType: str
 
 class RequestData(BaseModel):
-    profile: Profile
-    jobs: List[Job]
+    profiles: List[Profile]
+    job: Job
 
 # --- Helper Functions ---
 def extract_resume_text(url: str) -> str:
@@ -152,30 +153,33 @@ def process_job(job: Job) -> str:
     """
 
 # --- API Endpoint ---
-@app.post("/match-jobs", response_model=List[str])
+@app.post("/match-profiles", response_model=List[str])
 async def match_jobs(request_data: RequestData):
-    # Process profile into chunks
-    profile_chunks = process_profile(request_data.profile)
-    
+    # Process job once
+    job_text = process_job(request_data.job)
     # Generate profile embeddings
-    profile_embeddings = [embeddings.embed_query(chunk) for chunk in profile_chunks]
+    job_embedding = embeddings.embed_query(job_text)
     
     matches = []
-    for job in request_data.jobs:
+    for profile in request_data.profiles:
         # Process job data
-        job_text = process_job(job)
-        job_embedding = embeddings.embed_query(job_text)
+        profile_text = process_profile(profile)
+        profile_embeddings = [embeddings.embed_query(chunk) for chunk in profile_text]
+        
         
         # Calculate max similarity across chunks
         max_similarity = max([
-            cosine_similarity([p_embed], [job_embedding])[0][0]
+            cosine_similarity([job_embedding], [p_embed])[0][0]
             for p_embed in profile_embeddings
         ])
         
+        # Sort profiles by score (descending)
         if max_similarity >= 0.65:
-            matches.append(job.id)
-    
-    return matches
+            matches.append((profile.id,max_similarity))
+        sorted_profiles = sorted(matches, key=lambda x: x[1], reverse=True)
+        
+    # Return only names
+    return [profile[0] for profile in sorted_profiles]
 
 # --- Run Server ---
 if __name__ == "__main__":
